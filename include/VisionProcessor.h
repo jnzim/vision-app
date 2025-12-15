@@ -3,9 +3,12 @@
 
 #include <thread>
 #include <atomic>
+#include <chrono>
 #include <opencv2/opencv.hpp>
 #include "FrameGrabber.h"
 #include "FrameQueue.h"
+#include "KalmanTracker.h"
+
 
 #pragma once
 
@@ -21,6 +24,7 @@ public:
     ~VisionProcessor();
     void start();
     void stop();
+    
     bool getLatestDebugImage(cv::Mat& out);
 
 private:
@@ -32,6 +36,10 @@ private:
     std::thread         m_thread;
     std::mutex          m_dbgMutex;
     cv::Mat             m_latestDbg;   // owned by VisionProcessor
+    KalmanTracker       m_tracker;
+    std::chrono::steady_clock::time_point m_lastFrameTime{};
+    double m_fps{0.0};
+
 
 };
 

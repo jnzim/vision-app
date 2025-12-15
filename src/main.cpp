@@ -24,18 +24,14 @@ int main()
 
     cv::namedWindow("Camera", cv::WINDOW_AUTOSIZE);
 
+   cv::Mat img;
     while (true)
     {
-        cv::Mat img;
         if (processor.getLatestDebugImage(img))
-        {
-            cv::imshow("Camera", img);
-        }
+            cv::imshow("Debug", img);
 
-        if (cv::waitKey(1) == 27) 
-        { 
-            break; 
-        }
+        int key = cv::waitKey(1);
+        if (key == 27) break;
     }
 
     grabber.stop();
