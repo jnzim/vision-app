@@ -1,0 +1,40 @@
+# =========================
+# Build artifacts
+# =========================
+build/
+out/
+bin/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.o
+*.obj
+
+# =========================
+# macOS
+# =========================
+.DS_Store
+
+# =========================
+# Logs / temp
+# =========================
+*.log
+*.tmp
+
+# =========================
+# VS Code
+# =========================
+.vscode/*
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/launch.json
+
+
+# =========================
+# Misc
+# =========================
+*.swp
+*.swo
+*~
