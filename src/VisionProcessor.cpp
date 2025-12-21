@@ -1,6 +1,9 @@
 #include "VisionProcessor.h"
 #include <iostream>
 #include <chrono>
+#include <sstream>
+#include <iomanip>
+
 
 VisionProcessor::VisionProcessor(FrameQueue& queue) : m_queue(queue), m_running(false)
 { }
@@ -190,23 +193,38 @@ void VisionProcessor::processFrame(const Frame& f)
     // ----------------------------
     // 5) Publish AFTER overlays
     // ----------------------------
-    publishDebugImage(display);
+    publishDebugImage(DebugStage::RAW, f.image, f.timeStamp);
+    publishDebugImage(DebugStage::THRESHOLD, binary, f.timeStamp);
+    publishDebugImage(DebugStage::OVERLAY, display, f.timeStamp);
+
 }
 
 
 
-void VisionProcessor::publishDebugImage(const cv::Mat& img)
+void VisionProcessor::publishDebugImage(DebugStage stage, 
+                                        const cv::Mat& img,
+                                        Clock::time_point t_acquired)
 {
-    std::lock_guard<std::mutex> lock(m_dbgMutex);
-    m_latestDbg = img.clone();   // deep copy into shared slot
+    std::lock_guard<std::mutex> lock(m_debugMutex);
+
+    DebugPacket& debugPacket = m_latestDebugByStage[stage];
+    debugPacket.t_acquired = t_acquired;
+    img.copyTo(debugPacket.img);
 }
 
-bool VisionProcessor::getLatestDebugImage(cv::Mat& out)
+bool VisionProcessor::getLatestDebugImage(DebugStage stage,
+                                          cv::Mat& outImg,
+                                          Clock::time_point& outAcquired)
 {
-    std::lock_guard<std::mutex> lock(m_dbgMutex);
-    if (m_latestDbg.empty())
+    std::lock_guard<std::mutex> lock(m_debugMutex);
+    auto stageEntry = m_latestDebugByStage.find(stage);
+    if (stageEntry == m_latestDebugByStage.end() || stageEntry->second.img.empty())
+    {
         return false;
+    }
 
-    m_latestDbg.copyTo(out);     // deep copy out for UI thread
+    stageEntry->second.img.copyTo(outImg);
+    outAcquired = stageEntry->second.t_acquired;
     return true;
+
 }

@@ -1,7 +1,9 @@
 #include "FrameGrabber.h"
 
+
+
 FrameGrabber::FrameGrabber(FrameQueue& queue, int cameraIndex) :   
-m_queue(queue),m_cameraIndex(cameraIndex),  m_running(false)
+m_queue(queue), m_cameraIndex(cameraIndex), m_running(false)
 {
 }
 
@@ -29,7 +31,6 @@ void FrameGrabber::run()
 {
     try
     {
-
         cv::VideoCapture cap(m_cameraIndex); 
 
         if (!cap.isOpened())
@@ -38,12 +39,11 @@ void FrameGrabber::run()
             return;
         }
 
-        // 🍝 Main grab loop: runs until stop() is called
+        // Main grab loop: runs until stop() is called
         while (m_running)
         {
             Frame frame;
 
-            // 📷 Grab a frame (this blocks until a new frame is ready)
             cv::Mat img;
             // OpenCV will block, using 0 CPU while waiting
             cap >> img;   
@@ -57,7 +57,7 @@ void FrameGrabber::run()
             frame.image = std::move(img);
             frame.timeStamp = std::chrono::steady_clock::now();
 
-            // 📤 Push frame into the queue for processing
+            // Push frame into the queue for processing
             m_queue.push(std::move(frame));
         }
     }
