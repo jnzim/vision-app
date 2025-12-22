@@ -1,12 +1,17 @@
+// VisionProcessor.cpp
+
 #include "VisionProcessor.h"
+
 #include <iostream>
 #include <chrono>
 #include <sstream>
 #include <iomanip>
+#include <vector>
 
-
-VisionProcessor::VisionProcessor(FrameQueue& queue) : m_queue(queue), m_running(false)
-{ }
+VisionProcessor::VisionProcessor(FrameQueue& queue)
+    : m_queue(queue), m_running(false)
+{
+}
 
 VisionProcessor::~VisionProcessor()
 {
@@ -15,18 +20,17 @@ VisionProcessor::~VisionProcessor()
 
 void VisionProcessor::start()
 {
-    if (m_running.load()) return;
+    if (m_running.load(std::memory_order_relaxed)) return;
 
-    m_running.store(true);
+    m_running.store(true, std::memory_order_relaxed);
     m_thread = std::thread(&VisionProcessor::run, this);
 }
 
 void VisionProcessor::stop()
 {
-    if (!m_running.load()) return;
+    if (!m_running.load(std::memory_order_relaxed)) return;
 
-    m_running.store(false);
-
+    m_running.store(false, std::memory_order_relaxed);
     m_queue.stop(); // wake pop()
 
     if (m_thread.joinable())
@@ -37,7 +41,7 @@ void VisionProcessor::run()
 {
     try
     {
-        while (m_running.load())
+        while (m_running.load(std::memory_order_relaxed))
         {
             Frame frame;
             if (!m_queue.pop(frame))
@@ -49,19 +53,19 @@ void VisionProcessor::run()
     catch (const cv::Exception& e)
     {
         std::cerr << "[VisionProcessor] OpenCV exception: " << e.what() << "\n";
-        m_running.store(false);
+        m_running.store(false, std::memory_order_relaxed);
         m_queue.stop();
     }
     catch (const std::exception& e)
     {
         std::cerr << "[VisionProcessor] std::exception: " << e.what() << "\n";
-        m_running.store(false);
+        m_running.store(false, std::memory_order_relaxed);
         m_queue.stop();
     }
     catch (...)
     {
         std::cerr << "[VisionProcessor] unknown exception\n";
-        m_running.store(false);
+        m_running.store(false, std::memory_order_relaxed);
         m_queue.stop();
     }
 }
@@ -70,11 +74,27 @@ void VisionProcessor::processFrame(const Frame& f)
 {
     if (f.image.empty()) return;
 
-    const auto tStart = std::chrono::steady_clock::now();
+    // =========================================================
+    // 0) Acquisition cadence jitter
+    // =========================================================
+    if (m_lastAcqTime.time_since_epoch().count() != 0)
+    {
+        double acqCycleMs =
+            std::chrono::duration<double, std::milli>(f.timeStamp - m_lastAcqTime).count();
 
-    // ----------------------------
+        if (acqCycleMs > 0.0)
+        {
+            m_acqStats.add(acqCycleMs);
+            acqJitterMs.store(m_acqStats.stddev(), std::memory_order_relaxed);
+        }
+    }
+    m_lastAcqTime = f.timeStamp;
+
+    const auto tStart = Clock::now();
+
+    // =========================================================
     // 1) Detect measurement (centroid)
-    // ----------------------------
+    // =========================================================
     cv::Mat gray;
     cv::cvtColor(f.image, gray, cv::COLOR_BGR2GRAY);
 
@@ -112,104 +132,145 @@ void VisionProcessor::processFrame(const Frame& f)
         }
     }
 
-    // ----------------------------
-    // 2) Kalman update/predict
-    // ----------------------------
-    const auto now = std::chrono::steady_clock::now();
+    // =========================================================
+    // 2) Kalman update / predict (use acquisition timestamp)
+    // =========================================================
+    const auto tObs = f.timeStamp;
 
     cv::Point2f pred{};
-    if (hasMeas) pred = m_tracker.update(meas, now);
-    else         pred = m_tracker.predictToTime(now);
+    if (hasMeas) pred = m_tracker.update(meas, tObs);
+    else         pred = m_tracker.predictToTime(tObs);
 
-    // ----------------------------
-    // 3) Metrics: proc, cycle, fps
-    // ----------------------------
-    const double procMs =
-        std::chrono::duration<double, std::milli>(now - tStart).count();
+    const bool predValid = hasMeas || (pred.x != 0.0f || pred.y != 0.0f);
 
-    double cycleMs = 0.0;
-    if (m_lastFrameTime.time_since_epoch().count() != 0)
-        cycleMs = std::chrono::duration<double, std::milli>(now - m_lastFrameTime).count();
-    m_lastFrameTime = now;
-
-    if (cycleMs > 0.0) m_fps = 1000.0 / cycleMs;
-
-    // ----------------------------
-    // 4) Draw overlays
-    // ----------------------------
-    cv::Mat display = f.image.clone();
-
-    // Bigger dots
+    // =========================================================
+    // 3) Spatial jitter (step-based)
+    // =========================================================
     if (hasMeas)
     {
-        cv::circle(display, meas, 10, cv::Scalar(0,255,0), -1);
-        cv::circle(display, meas, 10, cv::Scalar(0,0,0), 2);
-    }
+        if (m_hasPrevMeas)
+            m_rawStepStats.add(cv::norm(meas - m_prevMeas));
+        else
+            m_hasPrevMeas = true;
 
-    // Avoid drawing junk (0,0) before init
-    const bool predValidForDraw = hasMeas || (pred.x != 0.0f || pred.y != 0.0f);
-    if (predValidForDraw)
+        m_prevMeas = meas;
+    }
+    rawJitterPx.store(m_rawStepStats.stddev(), std::memory_order_relaxed);
+
+    if (predValid)
     {
-        cv::circle(display, pred, 8, cv::Scalar(255,0,0), -1);
-        cv::circle(display, pred, 8, cv::Scalar(0,0,0), 2);
+        if (m_hasPrevPred)
+            m_kfStepStats.add(cv::norm(pred - m_prevPred));
+        else
+            m_hasPrevPred = true;
+
+        m_prevPred = pred;
+    }
+    kalmanJitterPx.store(m_kfStepStats.stddev(), std::memory_order_relaxed);
+
+    // =========================================================
+    // 4) Timing metrics
+    // =========================================================
+    const auto tEnd = Clock::now();
+
+    const double procMsLocal =
+        std::chrono::duration<double, std::milli>(tEnd - tStart).count();
+
+    procMs.store(procMsLocal, std::memory_order_relaxed);
+    m_procStats.add(procMsLocal);
+    procJitterMs.store(m_procStats.stddev(), std::memory_order_relaxed);
+
+    double cycleMsLocal = 0.0;
+    if (m_lastFrameTime.time_since_epoch().count() != 0)
+    {
+        cycleMsLocal =
+            std::chrono::duration<double, std::milli>(tEnd - m_lastFrameTime).count();
+
+        if (cycleMsLocal > 0.0)
+            m_cycleStats.add(cycleMsLocal);
+    }
+    m_lastFrameTime = tEnd;
+
+    cycleMs.store(cycleMsLocal, std::memory_order_relaxed);
+    cycleJitterMs.store(m_cycleStats.stddev(), std::memory_order_relaxed);
+
+    double fpsLocal = 0.0;
+    if (cycleMsLocal > 0.0)
+        fpsLocal = 1000.0 / cycleMsLocal;
+    fps.store(fpsLocal, std::memory_order_relaxed);
+
+    // =========================================================
+    // 5) Draw overlays (BLACK TEXT ONLY)
+    // =========================================================
+    cv::Mat display = f.image.clone();
+
+    if (hasMeas)
+    {
+        cv::circle(display, meas, 10, cv::Scalar(0, 255, 0), -1);
+        cv::circle(display, meas, 10, cv::Scalar(0, 0, 0), 2);
     }
 
-    // Big readable text (shadow + main)
+    if (predValid)
+    {
+        cv::circle(display, pred, 8, cv::Scalar(255, 0, 0), -1);
+        cv::circle(display, pred, 8, cv::Scalar(0, 0, 0), 2);
+    }
+
     const double fontScale = 1.0;
-    const int textThickness = 3;
-    const int shadowThickness = 5;
+    const int textThickness = 5;
 
     std::ostringstream ss1;
     ss1 << std::fixed << std::setprecision(1)
-        << "proc(ms): " << procMs
-        << "  cycle(ms): " << cycleMs
-        << "  fps: " << m_fps;
+        << "proc(ms): " << procMsLocal
+        << "  cycle(ms): " << cycleMsLocal
+        << "  fps: " << fpsLocal
+        << "  jit(acq/cyc/proc ms): "
+        << acqJitterMs.load(std::memory_order_relaxed) << "/"
+        << cycleJitterMs.load(std::memory_order_relaxed) << "/"
+        << procJitterMs.load(std::memory_order_relaxed);
 
-    cv::Point org1(15, 35);
-    cv::putText(display, ss1.str(), org1,
-                cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0,0,0), shadowThickness);
-    cv::putText(display, ss1.str(), org1,
-                cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(255,255,255), textThickness);
+    cv::putText(display, ss1.str(), {15, 35},
+                cv::FONT_HERSHEY_SIMPLEX, fontScale,
+                cv::Scalar(0, 0, 0), textThickness);
 
     std::ostringstream ss2;
-    ss2 << std::fixed << std::setprecision(1);
+    ss2 << std::fixed << std::setprecision(1)
+        << "meas: "
+        << (hasMeas ? "(" + std::to_string(meas.x) + ", " + std::to_string(meas.y) + ")" : "(n/a)")
+        << "  pred: "
+        << (predValid ? "(" + std::to_string(pred.x) + ", " + std::to_string(pred.y) + ")" : "(n/a)");
 
-    if (hasMeas)
-        ss2 << "meas: (" << meas.x << ", " << meas.y << ")  ";
-    else
-        ss2 << "meas: (n/a)  ";
+    cv::putText(display, ss2.str(), {15, 70},
+                cv::FONT_HERSHEY_SIMPLEX, fontScale,
+                cv::Scalar(0, 0, 0), textThickness);
 
-    if (predValidForDraw)
-        ss2 << "pred: (" << pred.x << ", " << pred.y << ")";
-    else
-        ss2 << "pred: (n/a)";
+    std::ostringstream ss3;
+    ss3 << std::fixed << std::setprecision(2)
+        << "jit(step px) raw/kf: "
+        << rawJitterPx.load(std::memory_order_relaxed) << "/"
+        << kalmanJitterPx.load(std::memory_order_relaxed);
 
-    cv::Point org2(15, 70);
-    cv::putText(display, ss2.str(), org2,
-                cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0,0,0), shadowThickness);
-    cv::putText(display, ss2.str(), org2,
-                cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(255,255,255), textThickness);
+    cv::putText(display, ss3.str(), {15, 105},
+                cv::FONT_HERSHEY_SIMPLEX, fontScale,
+                cv::Scalar(0, 0, 0), textThickness);
 
-    // ----------------------------
-    // 5) Publish AFTER overlays
-    // ----------------------------
+    // =========================================================
+    // 6) Publish AFTER overlays
+    // =========================================================
     publishDebugImage(DebugStage::RAW, f.image, f.timeStamp);
     publishDebugImage(DebugStage::THRESHOLD, binary, f.timeStamp);
     publishDebugImage(DebugStage::OVERLAY, display, f.timeStamp);
-
 }
 
-
-
-void VisionProcessor::publishDebugImage(DebugStage stage, 
+void VisionProcessor::publishDebugImage(DebugStage stage,
                                         const cv::Mat& img,
                                         Clock::time_point t_acquired)
 {
     std::lock_guard<std::mutex> lock(m_debugMutex);
 
-    DebugPacket& debugPacket = m_latestDebugByStage[stage];
-    debugPacket.t_acquired = t_acquired;
-    img.copyTo(debugPacket.img);
+    DebugPacket& pkt = m_latestDebugByStage[stage];
+    pkt.t_acquired = t_acquired;
+    img.copyTo(pkt.img);
 }
 
 bool VisionProcessor::getLatestDebugImage(DebugStage stage,
@@ -217,14 +278,12 @@ bool VisionProcessor::getLatestDebugImage(DebugStage stage,
                                           Clock::time_point& outAcquired)
 {
     std::lock_guard<std::mutex> lock(m_debugMutex);
-    auto stageEntry = m_latestDebugByStage.find(stage);
-    if (stageEntry == m_latestDebugByStage.end() || stageEntry->second.img.empty())
-    {
+
+    auto it = m_latestDebugByStage.find(stage);
+    if (it == m_latestDebugByStage.end() || it->second.img.empty())
         return false;
-    }
 
-    stageEntry->second.img.copyTo(outImg);
-    outAcquired = stageEntry->second.t_acquired;
+    it->second.img.copyTo(outImg);
+    outAcquired = it->second.t_acquired;
     return true;
-
 }

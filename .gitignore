@@ -9,6 +9,9 @@ CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
+compile_commands.json
+Testing/
+CTestTestfile.cmake
 *.o
 *.obj
 
@@ -16,6 +19,7 @@ Makefile
 # macOS
 # =========================
 .DS_Store
+*.dSYM/
 
 # =========================
 # Logs / temp
@@ -29,8 +33,6 @@ Makefile
 .vscode/*
 !.vscode/launch.json
 !.vscode/settings.json
-!.vscode/launch.json
-
 
 # =========================
 # Misc
