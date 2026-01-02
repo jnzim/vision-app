@@ -245,12 +245,38 @@ void VisionProcessor::processFrame(const Frame& f)
                 cv::FONT_HERSHEY_SIMPLEX, fontScale,
                 cv::Scalar(0, 255, 255), textThickness);
 
-    std::ostringstream ss2;
-    ss2 << std::fixed << std::setprecision(1)
-        << "meas: "
-        << (hasMeas ? "(" + std::to_string(meas.x) + ", " + std::to_string(meas.y) + ")" : "(n/a)")
-        << "  pred: "
-        << (predValid ? "(" + std::to_string(pred.x) + ", " + std::to_string(pred.y) + ")" : "(n/a)");
+#include <cmath>
+
+std::ostringstream ss2;
+ss2 << std::fixed << std::setprecision(1);
+
+ss2 << "meas: ";
+if (hasMeas) {
+    ss2 << "(" << std::setw(6) << meas.x << ", " << std::setw(6) << meas.y << ")";
+} else {
+    ss2 << "(  n/a,   n/a)";
+}
+
+ss2 << "  pred: ";
+if (predValid) {
+    ss2 << "(" << std::setw(6) << pred.x << ", " << std::setw(6) << pred.y << ")";
+} else {
+    ss2 << "(  n/a,   n/a)";
+}
+
+
+// d = innovation magnitude (prediction error)
+//     Pixel distance between predicted state and measured centroid.
+//     Indicates how "surprised" the model is by the measurement.
+ss2 << "  d:";
+if (hasMeas && predValid) {
+    float dx = meas.x - pred.x;
+    float dy = meas.y - pred.y;
+    ss2 << std::setw(5) << std::sqrt(dx*dx + dy*dy) << "px";
+} else {
+    ss2 << "  n/a";
+}
+
 
     cv::putText(display, ss2.str(), {15, 70},
                 cv::FONT_HERSHEY_SIMPLEX, fontScale,
