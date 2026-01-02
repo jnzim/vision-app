@@ -26,10 +26,12 @@ struct DebugPacket
 enum class DebugStage
 {
     RAW         = 0,
-    THRESHOLD   = 1,
-    OVERLAY     = 2,
-    KALMAN      = 3,
-    NUM_STAGES  = 4,
+    GRAY        = 1,
+    BLUR        = 2,
+    THRESHOLD   = 3,
+    OVERLAY     = 4,
+    KALMAN      = 5,
+    NUM_STAGES  = 6,
 };
 
 

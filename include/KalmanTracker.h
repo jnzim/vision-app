@@ -11,12 +11,24 @@ class KalmanTracker
 public:
     KalmanTracker();
 
-    // Update with a measurement taken at time t
     cv::Point2f update(const cv::Point2f& measured,
                        std::chrono::steady_clock::time_point t);
 
-    // Predict state forward to time t (latency compensation / display time)
     cv::Point2f predictToTime(std::chrono::steady_clock::time_point t);
+
+    // Model uncertainty knob: assumed acceleration standard deviation (px/s^2).
+    // Lower => smaller Q => smoother (more model trust). Higher => more responsive.
+    void setAccelerationNoiseStd(float sigmaA) { m_sigmaA = sigmaA; }
+    float getAccelerationNoiseStd() const { return m_sigmaA; }
+
+    void setMaxDt(float maxDt) { m_maxDt = maxDt; }
+    float getMaxDt() const { return m_maxDt; }
+
+    // The actual process noise covariance matrix Q used by the filter (changes with dt).
+    const cv::Mat& getProcessNoiseCov() const { return kf.processNoiseCov; }
+
+    // The actual measurement noise covariance matrix R.
+    const cv::Mat& getMeasurementNoiseCov() const { return kf.measurementNoiseCov; }
 
     void reset();
 
@@ -25,8 +37,12 @@ private:
 
 private:
     cv::KalmanFilter kf;
-    cv::Mat measurement; // 2x1 vector [pos_x, pos_y]
+    cv::Mat measurement;
 
     std::chrono::steady_clock::time_point lastTime{};
     bool hasState{false};
+
+    // Tuning knobs (parameters that generate Q in predictTo()).
+    float m_sigmaA = 30.0f; // px/s^2
+    float m_maxDt  = 0.10f; // seconds
 };

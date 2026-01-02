@@ -7,7 +7,8 @@ class RollingStats {
 public:
     explicit RollingStats(std::size_t window) : m_window(window) {}
 
-    void add(double x) {
+    void add(double x) 
+    {
         if (m_window == 0) return;
 
         if (m_vals.size() == m_window) 

@@ -2,6 +2,7 @@
 
 #include "VisionProcessor.h"
 
+#include <cstddef>
 #include <iostream>
 #include <chrono>
 #include <sstream>
@@ -98,8 +99,11 @@ void VisionProcessor::processFrame(const Frame& f)
     cv::Mat gray;
     cv::cvtColor(f.image, gray, cv::COLOR_BGR2GRAY);
 
+    cv::Mat blurred;
+    cv::GaussianBlur(gray, blurred, cv::Size(5,5), 0);
+
     cv::Mat binary;
-    cv::threshold(gray, binary, 200, 255, cv::THRESH_BINARY);
+    cv::threshold(blurred, binary, 35, 255, cv::THRESH_BINARY);
 
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
@@ -138,9 +142,14 @@ void VisionProcessor::processFrame(const Frame& f)
     const auto tObs = f.timeStamp;
 
     cv::Point2f pred{};
-    if (hasMeas) pred = m_tracker.update(meas, tObs);
-    else         pred = m_tracker.predictToTime(tObs);
-
+    if (hasMeas) 
+    {
+        pred = m_tracker.update(meas, tObs);
+    }
+    else         
+    {
+        pred = m_tracker.predictToTime(tObs);
+    }
     const bool predValid = hasMeas || (pred.x != 0.0f || pred.y != 0.0f);
 
     // =========================================================
@@ -149,10 +158,13 @@ void VisionProcessor::processFrame(const Frame& f)
     if (hasMeas)
     {
         if (m_hasPrevMeas)
+        {
             m_rawStepStats.add(cv::norm(meas - m_prevMeas));
+        }
         else
+        {
             m_hasPrevMeas = true;
-
+        }
         m_prevMeas = meas;
     }
     rawJitterPx.store(m_rawStepStats.stddev(), std::memory_order_relaxed);
@@ -231,7 +243,7 @@ void VisionProcessor::processFrame(const Frame& f)
 
     cv::putText(display, ss1.str(), {15, 35},
                 cv::FONT_HERSHEY_SIMPLEX, fontScale,
-                cv::Scalar(0, 0, 0), textThickness);
+                cv::Scalar(0, 255, 255), textThickness);
 
     std::ostringstream ss2;
     ss2 << std::fixed << std::setprecision(1)
@@ -242,7 +254,7 @@ void VisionProcessor::processFrame(const Frame& f)
 
     cv::putText(display, ss2.str(), {15, 70},
                 cv::FONT_HERSHEY_SIMPLEX, fontScale,
-                cv::Scalar(0, 0, 0), textThickness);
+                cv::Scalar(0, 255, 255), textThickness);
 
     std::ostringstream ss3;
     ss3 << std::fixed << std::setprecision(2)
@@ -252,12 +264,14 @@ void VisionProcessor::processFrame(const Frame& f)
 
     cv::putText(display, ss3.str(), {15, 105},
                 cv::FONT_HERSHEY_SIMPLEX, fontScale,
-                cv::Scalar(0, 0, 0), textThickness);
+                cv::Scalar(0, 255, 255), textThickness);
 
     // =========================================================
     // 6) Publish AFTER overlays
     // =========================================================
     publishDebugImage(DebugStage::RAW, f.image, f.timeStamp);
+    publishDebugImage(DebugStage::GRAY, gray, f.timeStamp);
+    publishDebugImage(DebugStage::BLUR, blurred, f.timeStamp);
     publishDebugImage(DebugStage::THRESHOLD, binary, f.timeStamp);
     publishDebugImage(DebugStage::OVERLAY, display, f.timeStamp);
 }

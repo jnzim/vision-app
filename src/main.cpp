@@ -1,8 +1,8 @@
 #include <iostream>
 #include <random>
 #include <opencv2/opencv.hpp>
-
 #include "KalmanTracker.h"
+
 #include "ThreadPool.h"
 #include "TrackerSM.h"
 #include "FrameQueue.h"
@@ -24,17 +24,17 @@ int main()
 
     cv::namedWindow("Camera", cv::WINDOW_AUTOSIZE);
 
-cv::Mat img;
-Clock::time_point t_acq{};
-DebugStage stage = DebugStage::OVERLAY;
-double lastLatencyMs = 0.0;
+    cv::Mat img;
+    Clock::time_point t_acq{};
+    DebugStage stage    = DebugStage::OVERLAY;
+    double lastLatencyMs = 0.0;
 
-while (true)
-{
-    if (processor.getLatestDebugImage(stage, img, t_acq))
+    while (true)
     {
-        cv::imshow("Debug", img);
-    }
+        if (processor.getLatestDebugImage(stage, img, t_acq))
+        {
+            cv::imshow("Debug", img);
+        }
 
         int key = cv::waitKey(1);
         auto t_disp = Clock::now();
@@ -46,8 +46,11 @@ while (true)
 
         if (key == 27) break;
         if (key == '1') stage = DebugStage::RAW;
-        if (key == '2') stage = DebugStage::THRESHOLD;
-        if (key == '3') stage = DebugStage::OVERLAY;
+        if (key == '2') stage = DebugStage::GRAY;
+        if (key == '3') stage = DebugStage::BLUR;
+        if (key == '4') stage = DebugStage::THRESHOLD;
+        if (key == '5') stage = DebugStage::OVERLAY;
+
     }
 
 

@@ -53,7 +53,7 @@ void FrameGrabber::run()
                 continue; // camera glitch? skip
             }
 
-            // just moves a pointer 
+            // moves a pointer 
             frame.image = std::move(img);
             frame.timeStamp = std::chrono::steady_clock::now();
 

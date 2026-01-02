@@ -1,4 +1,4 @@
-{
+\{
   "version": "0.2.0",
   "configurations": [
     {
@@ -8,10 +8,12 @@
       "program": "${workspaceFolder}/build/opencv_vision_tracker",
       "args": [],
       "stopAtEntry": false,
-      "cwd": "${workspaceFolder}/build",
+      "cwd": "${workspaceFolder}",
       "environment": [],
       "externalConsole": false,
-      "MIMode": "lldb"
+      "MIMode": "lldb",
+      "preLaunchTask": "CMake: build",
+      "console": "integratedTerminal"
     }
   ]
 }
