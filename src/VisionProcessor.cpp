@@ -8,10 +8,14 @@
 #include <sstream>
 #include <iomanip>
 #include <vector>
+#include <vision/Interfaces/FaceBackendFactory.h>
+
 
 VisionProcessor::VisionProcessor(FrameQueue& queue)
     : m_queue(queue), m_running(false)
 {
+    m_faceDetector = vision::CreateFaceDetector_OpenCVDNN();
+    m_faceEmbedder = vision::CreateFaceEmbedder_OpenCVDNN();
 }
 
 VisionProcessor::~VisionProcessor()

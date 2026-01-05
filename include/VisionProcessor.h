@@ -13,9 +13,17 @@
 #include "FrameQueue.h"
 #include "KalmanTracker.h"
 #include "RollingStats.h"
-
+#include <memory>
+#include <vision/Interfaces/IFaceDetector.h>
+#include <vision/Interfaces/IFaceEmbedder.h>
 
 using Clock = std::chrono::steady_clock;
+
+
+
+
+
+
 
 struct DebugPacket
 {
@@ -119,6 +127,9 @@ private:
     std::unordered_map<DebugStage, DebugPacket, DebugStageHash> m_latestDebugByStage;
 
     KalmanTracker       m_tracker;
+
+    std::unique_ptr<vision::IFaceDetector> m_faceDetector;
+    std::unique_ptr<vision::IFaceEmbedder> m_faceEmbedder;
 
 
 };
