@@ -1,11 +1,11 @@
-#include "Utils.h.h"
+#include "Utils.h"
 
-Utils.h::Utils.h()
+Utils::Utils()
 {
 
 }
 
-Utils.h::~Utils.h()
+Utils::~Utils()
 {
 
 }

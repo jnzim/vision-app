@@ -1,13 +1,13 @@
-#ifndef UTILS.H_H
-#define UTILS.H_H
+#ifndef UTILSH_H
+#define UTILSH_H
 
 #pragma once
 
-class Utils.h
+class Utils
 {
 public:
-    Utils.h();
-    ~Utils.h();
+    Utils();
+    ~Utils();
 
 private:
 
