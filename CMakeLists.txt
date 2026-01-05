@@ -18,4 +18,7 @@ target_include_directories(opencv_vision_tracker PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+option(USE_TENSORRT "Enable TensorRT backend" OFF)
+
+
 target_link_libraries(opencv_vision_tracker PRIVATE ${OpenCV_LIBS})
