@@ -19,4 +19,3 @@ target_include_directories(opencv_vision_tracker PRIVATE
 )
 
 target_link_libraries(opencv_vision_tracker PRIVATE ${OpenCV_LIBS})
-

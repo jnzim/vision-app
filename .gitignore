@@ -40,3 +40,5 @@ CTestTestfile.cmake
 *.swp
 *.swo
 *~
+
+.cache/
