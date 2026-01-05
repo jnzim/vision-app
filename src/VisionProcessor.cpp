@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <vector>
 #include <vision/Interfaces/FaceBackendFactory.h>
+#include <math.h>
 
 
 VisionProcessor::VisionProcessor(FrameQueue& queue)
@@ -215,10 +216,28 @@ void VisionProcessor::processFrame(const Frame& f)
         fpsLocal = 1000.0 / cycleMsLocal;
     fps.store(fpsLocal, std::memory_order_relaxed);
 
+
     // =========================================================
-    // 5) Draw overlays (BLACK TEXT ONLY)
+    // 5a) Draw overlays (BLACK TEXT ONLY)
     // =========================================================
     cv::Mat display = f.image.clone();
+
+    // =========================================================
+    // 5b) Detect Face
+    // =========================================================
+    if (m_faceDetector)
+    {
+        const auto dets = m_faceDetector->detect(f.image);
+        for (const auto& d : dets)
+        {
+            cv::rectangle(display, d.box, cv::Scalar(0, 255, 0), 2);
+            // optional score text
+            // cv::putText(frameBgr, cv::format("%.2f", d.score), d.box.tl(), cv::FONT_HERSHEY_SIMPLEX, 0.5, {0,255,0}, 1);
+        }
+    }
+
+
+
 
     if (hasMeas)
     {
@@ -249,7 +268,6 @@ void VisionProcessor::processFrame(const Frame& f)
                 cv::FONT_HERSHEY_SIMPLEX, fontScale,
                 cv::Scalar(0, 255, 255), textThickness);
 
-#include <cmath>
 
 std::ostringstream ss2;
 ss2 << std::fixed << std::setprecision(1);
