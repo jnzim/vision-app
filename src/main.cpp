@@ -1,10 +1,9 @@
 #include <iostream>
-#include <random>
+
 #include <opencv2/opencv.hpp>
 #include "KalmanTracker.h"
 
-#include "ThreadPool.h"
-#include "TrackerSM.h"
+
 #include "FrameQueue.h"
 #include "FrameGrabber.h"
 #include "VisionProcessor.h"
@@ -28,6 +27,9 @@ int main()
     Clock::time_point t_acq{};
     DebugStage stage    = DebugStage::OVERLAY;
     double lastLatencyMs = 0.0;
+
+    std::cerr << "OpenCV version: " << CV_VERSION << "\n";
+
 
     while (true)
     {

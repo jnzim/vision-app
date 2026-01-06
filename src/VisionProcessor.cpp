@@ -16,7 +16,7 @@ VisionProcessor::VisionProcessor(FrameQueue& queue)
     : m_queue(queue), m_running(false)
 {
     m_faceDetector = vision::CreateFaceDetector_OpenCVDNN();
-    m_faceEmbedder = vision::CreateFaceEmbedder_OpenCVDNN();
+    //m_faceEmbedder = vision::CreateFaceEmbedder_OpenCVDNN();
 }
 
 VisionProcessor::~VisionProcessor()
@@ -224,18 +224,46 @@ void VisionProcessor::processFrame(const Frame& f)
 
     // =========================================================
     // 5b) Detect Face
-    // =========================================================
-    if (m_faceDetector)
+ 
+if (m_faceDetector)
+{
+    try
     {
         const auto dets = m_faceDetector->detect(f.image);
+
+        cv::putText(display,
+                    cv::format("faces: %zu", dets.size()),
+                    {15, 140},
+                    cv::FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    cv::Scalar(0, 255, 0),
+                    2);
+
         for (const auto& d : dets)
         {
             cv::rectangle(display, d.box, cv::Scalar(0, 255, 0), 2);
-            // optional score text
-            // cv::putText(frameBgr, cv::format("%.2f", d.score), d.box.tl(), cv::FONT_HERSHEY_SIMPLEX, 0.5, {0,255,0}, 1);
         }
     }
+    catch (const cv::Exception& e)
+    {
+        static int errCount = 0;
+        if (errCount++ < 5) // print first few
+            std::cerr << "[FaceDetect] OpenCV exception: " << e.what() << "\n";
 
+        // Don’t permanently disable while debugging.
+        // If you want a “fuse”, disable after repeated failures:
+        // if (errCount > 50) m_faceDetector.reset();
+    }
+    catch (const std::exception& e)
+    {
+        static int errCount = 0;
+        if (errCount++ < 5)
+            std::cerr << "[FaceDetect] exception: " << e.what() << "\n";
+
+        // Same deal—don’t reset immediately.
+        // if (errCount > 50) m_faceDetector.reset();
+    }
+}
 
 
 
