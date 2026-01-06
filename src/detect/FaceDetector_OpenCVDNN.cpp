@@ -147,7 +147,7 @@ std::unique_ptr<IFaceDetector> CreateFaceDetector_OpenCVDNN()
 {
     return std::make_unique<FaceDetector_OpenCVDNN>(
         "models/face_detection_yunet_2023mar.onnx",
-        /*scoreThresh*/ 0.6f,
+        /*scoreThresh*/ 0.7f,
         /*nmsThresh*/   0.3f,
         /*topK*/        5000
     );

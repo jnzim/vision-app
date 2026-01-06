@@ -8,15 +8,15 @@
 #include <sstream>
 #include <iomanip>
 #include <vector>
+#include <algorithm>   // max_element
 #include <vision/Interfaces/FaceBackendFactory.h>
 #include <math.h>
-
 
 VisionProcessor::VisionProcessor(FrameQueue& queue)
     : m_queue(queue), m_running(false)
 {
     m_faceDetector = vision::CreateFaceDetector_OpenCVDNN();
-    //m_faceEmbedder = vision::CreateFaceEmbedder_OpenCVDNN();
+    // m_faceEmbedder = vision::CreateFaceEmbedder_OpenCVDNN();
 }
 
 VisionProcessor::~VisionProcessor()
@@ -98,8 +98,21 @@ void VisionProcessor::processFrame(const Frame& f)
 
     const auto tStart = Clock::now();
 
+
     // =========================================================
-    // 1) Detect measurement (centroid)
+    // Face detection cache / throttle / ROI state
+    // =========================================================
+    static int frameCounter = 0;
+    static std::vector<vision::Detection> lastFaceDets;
+    static double lastFaceMs = 0.0;
+
+    static cv::Point2f lastPredForROI{0.f, 0.f};
+    static bool lastPredValidForROI = false;
+
+    const bool runFaceDetect = (++frameCounter % 5) == 0; // every 5th frame
+
+    // =========================================================
+    // 1) Detect measurement (blob centroid fallback)
     // =========================================================
     cv::Mat gray;
     cv::cvtColor(f.image, gray, cv::COLOR_BGR2GRAY);
@@ -110,34 +123,86 @@ void VisionProcessor::processFrame(const Frame& f)
     cv::Mat binary;
     cv::threshold(blurred, binary, 35, 255, cv::THRESH_BINARY);
 
-    std::vector<std::vector<cv::Point>> contours;
-    cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-
     bool hasMeas = false;
     cv::Point2f meas{};
 
-    if (!contours.empty())
-    {
-        int bestIdx = 0;
-        double bestArea = 0.0;
 
-        for (int i = 0; i < static_cast<int>(contours.size()); i++)
+    // =========================================================
+    // 1b) Face detection (throttled) + ROI crop near last prediction
+    // =========================================================
+    if (m_faceDetector)
+    {
+        try
         {
-            double area = cv::contourArea(contours[i]);
-            if (area > bestArea)
+            if (runFaceDetect)
             {
-                bestArea = area;
-                bestIdx = i;
+                // Decide ROI:
+                // - If we have a previous prediction, crop around it.
+                // - Otherwise detect on full frame (bootstrap).
+                cv::Rect roiRect(0, 0, f.image.cols, f.image.rows);
+
+                if (lastPredValidForROI)
+                {
+                    // ROI size: tune this. 640 is a good starting point for 1080p.
+                    const int roiW = 640;
+                    const int roiH = 640;
+
+                    int cx = static_cast<int>(std::round(lastPredForROI.x));
+                    int cy = static_cast<int>(std::round(lastPredForROI.y));
+
+                    roiRect = cv::Rect(cx - roiW / 2, cy - roiH / 2, roiW, roiH);
+                    roiRect &= cv::Rect(0, 0, f.image.cols, f.image.rows); // clamp
+                }
+
+                // Run detection on ROI
+                const auto t0 = Clock::now();
+
+                cv::Mat roiImg = f.image(roiRect); // view (no copy)
+                auto detsRoi = m_faceDetector->detect(roiImg);
+
+                const auto t1 = Clock::now();
+                lastFaceMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+                // Translate detections back into full-frame coordinates
+                lastFaceDets.clear();
+                lastFaceDets.reserve(detsRoi.size());
+
+                for (auto d : detsRoi)
+                {
+                    d.box.x += roiRect.x;
+                    d.box.y += roiRect.y;
+                    lastFaceDets.push_back(d);
+                }
+            }
+
+            // Prefer face measurement if available
+            if (!lastFaceDets.empty())
+            {
+                const auto bestIt = std::max_element(
+                    lastFaceDets.begin(), lastFaceDets.end(),
+                    [](const vision::Detection& a, const vision::Detection& b)
+                    {
+                        return a.score < b.score;
+                    });
+
+                const auto& box = bestIt->box;
+                meas = cv::Point2f(
+                    box.x + 0.5f * box.width,
+                    box.y + 0.5f * box.height);
+                hasMeas = true;
             }
         }
-
-        cv::Moments m = cv::moments(contours[bestIdx]);
-        if (m.m00 > 0.0)
+        catch (const cv::Exception& e)
         {
-            meas = cv::Point2f(
-                static_cast<float>(m.m10 / m.m00),
-                static_cast<float>(m.m01 / m.m00));
-            hasMeas = true;
+            static int errCount = 0;
+            if (errCount++ < 5)
+                std::cerr << "[FaceDetect] OpenCV exception: " << e.what() << "\n";
+        }
+        catch (const std::exception& e)
+        {
+            static int errCount = 0;
+            if (errCount++ < 5)
+                std::cerr << "[FaceDetect] exception: " << e.what() << "\n";
         }
     }
 
@@ -147,14 +212,11 @@ void VisionProcessor::processFrame(const Frame& f)
     const auto tObs = f.timeStamp;
 
     cv::Point2f pred{};
-    if (hasMeas) 
-    {
+    if (hasMeas)
         pred = m_tracker.update(meas, tObs);
-    }
-    else         
-    {
+    else
         pred = m_tracker.predictToTime(tObs);
-    }
+
     const bool predValid = hasMeas || (pred.x != 0.0f || pred.y != 0.0f);
 
     // =========================================================
@@ -163,13 +225,10 @@ void VisionProcessor::processFrame(const Frame& f)
     if (hasMeas)
     {
         if (m_hasPrevMeas)
-        {
             m_rawStepStats.add(cv::norm(meas - m_prevMeas));
-        }
         else
-        {
             m_hasPrevMeas = true;
-        }
+
         m_prevMeas = meas;
     }
     rawJitterPx.store(m_rawStepStats.stddev(), std::memory_order_relaxed);
@@ -216,57 +275,27 @@ void VisionProcessor::processFrame(const Frame& f)
         fpsLocal = 1000.0 / cycleMsLocal;
     fps.store(fpsLocal, std::memory_order_relaxed);
 
-
     // =========================================================
-    // 5a) Draw overlays (BLACK TEXT ONLY)
+    // 5a) Draw overlays
     // =========================================================
     cv::Mat display = f.image.clone();
 
-    // =========================================================
-    // 5b) Detect Face
- 
-if (m_faceDetector)
-{
-    try
+    // 5b) Draw face boxes + “proof” overlay
+    if (m_faceDetector)
     {
-        const auto dets = m_faceDetector->detect(f.image);
-
         cv::putText(display,
-                    cv::format("faces: %zu", dets.size()),
+                    cv::format("faces: %zu  face(ms): %.1f", lastFaceDets.size(), lastFaceMs),
                     {15, 140},
                     cv::FONT_HERSHEY_SIMPLEX,
                     0.8,
                     cv::Scalar(0, 255, 0),
                     2);
 
-        for (const auto& d : dets)
-        {
+        for (const auto& d : lastFaceDets)
             cv::rectangle(display, d.box, cv::Scalar(0, 255, 0), 2);
-        }
     }
-    catch (const cv::Exception& e)
-    {
-        static int errCount = 0;
-        if (errCount++ < 5) // print first few
-            std::cerr << "[FaceDetect] OpenCV exception: " << e.what() << "\n";
 
-        // Don’t permanently disable while debugging.
-        // If you want a “fuse”, disable after repeated failures:
-        // if (errCount > 50) m_faceDetector.reset();
-    }
-    catch (const std::exception& e)
-    {
-        static int errCount = 0;
-        if (errCount++ < 5)
-            std::cerr << "[FaceDetect] exception: " << e.what() << "\n";
-
-        // Same deal—don’t reset immediately.
-        // if (errCount > 50) m_faceDetector.reset();
-    }
-}
-
-
-
+    // Draw meas/pred points
     if (hasMeas)
     {
         cv::circle(display, meas, 10, cv::Scalar(0, 255, 0), -1);
@@ -296,37 +325,31 @@ if (m_faceDetector)
                 cv::FONT_HERSHEY_SIMPLEX, fontScale,
                 cv::Scalar(0, 255, 255), textThickness);
 
+    std::ostringstream ss2;
+    ss2 << std::fixed << std::setprecision(1);
 
-std::ostringstream ss2;
-ss2 << std::fixed << std::setprecision(1);
+    ss2 << "meas: ";
+    if (hasMeas) {
+        ss2 << "(" << std::setw(6) << meas.x << ", " << std::setw(6) << meas.y << ")";
+    } else {
+        ss2 << "(  n/a,   n/a)";
+    }
 
-ss2 << "meas: ";
-if (hasMeas) {
-    ss2 << "(" << std::setw(6) << meas.x << ", " << std::setw(6) << meas.y << ")";
-} else {
-    ss2 << "(  n/a,   n/a)";
-}
+    ss2 << "  pred: ";
+    if (predValid) {
+        ss2 << "(" << std::setw(6) << pred.x << ", " << std::setw(6) << pred.y << ")";
+    } else {
+        ss2 << "(  n/a,   n/a)";
+    }
 
-ss2 << "  pred: ";
-if (predValid) {
-    ss2 << "(" << std::setw(6) << pred.x << ", " << std::setw(6) << pred.y << ")";
-} else {
-    ss2 << "(  n/a,   n/a)";
-}
-
-
-// d = innovation magnitude (prediction error)
-//     Pixel distance between predicted state and measured centroid.
-//     Indicates how "surprised" the model is by the measurement.
-ss2 << "  d:";
-if (hasMeas && predValid) {
-    float dx = meas.x - pred.x;
-    float dy = meas.y - pred.y;
-    ss2 << std::setw(5) << std::sqrt(dx*dx + dy*dy) << "px";
-} else {
-    ss2 << "  n/a";
-}
-
+    ss2 << "  d:";
+    if (hasMeas && predValid) {
+        float dx = meas.x - pred.x;
+        float dy = meas.y - pred.y;
+        ss2 << std::setw(5) << std::sqrt(dx*dx + dy*dy) << "px";
+    } else {
+        ss2 << "  n/a";
+    }
 
     cv::putText(display, ss2.str(), {15, 70},
                 cv::FONT_HERSHEY_SIMPLEX, fontScale,
@@ -341,6 +364,13 @@ if (hasMeas && predValid) {
     cv::putText(display, ss3.str(), {15, 105},
                 cv::FONT_HERSHEY_SIMPLEX, fontScale,
                 cv::Scalar(0, 255, 255), textThickness);
+
+    cv::putText(display, cv::format("KF update: %s", hasMeas ? "YES" : "NO"),
+                {15, 200},
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.7,
+                hasMeas ? cv::Scalar(0,255,0) : cv::Scalar(0,0,255),
+            2);
 
     // =========================================================
     // 6) Publish AFTER overlays
