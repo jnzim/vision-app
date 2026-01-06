@@ -8,6 +8,8 @@ FrameQueue::~FrameQueue()
     stop();
 }
 
+
+/*
 void FrameQueue::push(Frame&& frame)
 {
     {
@@ -17,6 +19,22 @@ void FrameQueue::push(Frame&& frame)
         m_queue.push(std::move(frame));
     }
     // let the processor thread know there's a new frame -
+    m_cv.notify_one();
+}
+*/
+
+void FrameQueue::push(Frame&& frame)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        // Real-time behavior: keep only the most recent frame
+        // to prevent latency buildup when processing is slow.
+        while (!m_queue.empty())
+            m_queue.pop();
+
+        m_queue.push(std::move(frame));
+    }
     m_cv.notify_one();
 }
 
@@ -50,8 +68,8 @@ bool FrameQueue::pop(Frame& out)
 void FrameQueue::stop()
 {
     {
-        std::lock_guard<std::mutex>lock(m_mutex);
+        std::lock_guard<std::mutex> lock(m_mutex);
         m_stopping = true;
     }
-    m_cv.notify_one();
+    m_cv.notify_all();
 }
