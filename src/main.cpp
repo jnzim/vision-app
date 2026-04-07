@@ -3,33 +3,30 @@
 #include <opencv2/opencv.hpp>
 #include "KalmanTracker.h"
 
-
 #include "FrameQueue.h"
 #include "FrameGrabber.h"
 #include "VisionProcessor.h"
 
 using namespace std;
 
-
 int main()
 {
-    FrameQueue      queue;
-    FrameQueue&     q = queue;      // make a ref
-    FrameGrabber    grabber(q, 0);  // pass a ref so everthing is using the same queue
+    FrameQueue queue;
+    FrameQueue& q = queue;                  // shared queue between grabber and processor
+    FrameGrabber grabber(q, 0);             // camera 0
     VisionProcessor processor(queue);
 
-    grabber.start();        
+    grabber.start();
     processor.start();
 
-    cv::namedWindow("Camera", cv::WINDOW_AUTOSIZE);
+    cv::namedWindow("Debug", cv::WINDOW_AUTOSIZE);
 
     cv::Mat img;
     Clock::time_point t_acq{};
-    DebugStage stage    = DebugStage::OVERLAY;
+    DebugStage stage = DebugStage::OVERLAY;
     double lastLatencyMs = 0.0;
 
     std::cerr << "OpenCV version: " << CV_VERSION << "\n";
-
 
     while (true)
     {
@@ -38,23 +35,41 @@ int main()
             cv::imshow("Debug", img);
         }
 
-        int key = cv::waitKey(1);
-        auto t_disp = Clock::now();
+        const int key = cv::waitKey(1);
+        const auto t_disp = Clock::now();
 
+        // display latency from acquisition timestamp to UI update
         if (!img.empty())
         {
-            lastLatencyMs = std::chrono::duration<double, std::milli>(t_disp - t_acq).count();
+            lastLatencyMs =
+                std::chrono::duration<double, std::milli>(t_disp - t_acq).count();
         }
 
-        if (key == 27) break;
-        if (key == '1') stage = DebugStage::RAW;
-        if (key == '2') stage = DebugStage::GRAY;
-        if (key == '3') stage = DebugStage::BLUR;
-        if (key == '4') stage = DebugStage::THRESHOLD;
-        if (key == '5') stage = DebugStage::OVERLAY;
-
+        if (key == 27)
+        {
+            break;
+        }
+        else if (key == '1')
+        {
+            stage = DebugStage::RAW;
+        }
+        else if (key == '2')
+        {
+            stage = DebugStage::GRAY;
+        }
+        else if (key == '3')
+        {
+            stage = DebugStage::BLUR;
+        }
+        else if (key == '4')
+        {
+            stage = DebugStage::THRESHOLD;
+        }
+        else if (key == '5')
+        {
+            stage = DebugStage::OVERLAY;
+        }
     }
-
 
     grabber.stop();
     processor.stop();

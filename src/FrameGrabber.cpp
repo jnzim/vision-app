@@ -1,7 +1,5 @@
 #include "FrameGrabber.h"
 
-
-
 FrameGrabber::FrameGrabber(FrameQueue& queue, int cameraIndex) :   
 m_queue(queue), m_cameraIndex(cameraIndex), m_running(false)
 {
@@ -15,7 +13,7 @@ FrameGrabber::~FrameGrabber()
 void FrameGrabber::start()
 {
     m_running = true;
-    // pass pointer to run func
+    // spin up the worker thread
     m_thread = std::thread(&FrameGrabber::run, this);
 }
 
@@ -40,32 +38,32 @@ void FrameGrabber::run()
             return;
         }
 
-        // Main grab loop: runs until stop() is called
+        // main grab loop, runs until stop() flips m_running
         while (m_running)
         {
             Frame frame;
 
             cv::Mat img;
-            // OpenCV will block, using 0 CPU while waiting
+            // OpenCV blocks here, so we're not burning CPU waiting
             cap >> img;   
 
             if (img.empty())
             {
-                continue; // camera glitch? skip
+                continue; // camera glitch, just skip and keep going
             }
 
-            // moves a pointer 
-            frame.image = std::move(img);
+            // move image into frame (no copy)
+            frame.image     = std::move(img);
             frame.timeStamp = std::chrono::steady_clock::now();
 
-            // Push frame into the queue for processing
+            // push frame to queue for the vision thread
             m_queue.push(std::move(frame));
         }
     }
-       catch (const std::exception& e)
+    catch (const std::exception& e)
     {
         std::cerr << "[FrameGrabber] EXCEPTION: " << e.what() << "\n";
-        m_queue.stop();          // wake consumers so app can exit cleanly
+        m_queue.stop();          // wake consumer so shutdown doesn't hang
     }
     catch (...)
     {

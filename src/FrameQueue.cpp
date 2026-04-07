@@ -1,24 +1,26 @@
- #include <mutex>
- #include "FrameQueue.h"
+#include <mutex>
+#include "FrameQueue.h"
 
- FrameQueue::FrameQueue() : m_stopping(false)
- {}
+FrameQueue::FrameQueue() : m_stopping(false)
+{}
+
 FrameQueue::~FrameQueue()
 {
     stop();
 }
 
-
 /*
 void FrameQueue::push(Frame&& frame)
 {
     {
-        // lock the queue to prevent race condion / coruption
-        std::lock_guard<std::mutex>lock(m_mutex);
-        //hand over the image pointer + timestamp.
+        // Lock to protect queue access
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        // Transfer ownership of the frame into the queue
         m_queue.push(std::move(frame));
     }
-    // let the processor thread know there's a new frame -
+
+    // Notify consumer thread that a new frame is available
     m_cv.notify_one();
 }
 */
@@ -28,49 +30,52 @@ void FrameQueue::push(Frame&& frame)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
 
-        // Real-time behavior: keep only the most recent frame
-        // to prevent latency buildup when processing is slow.
+        // Real-time behavior: only keep the latest frame
+        // Prevents latency buildup if processing falls behind
         while (!m_queue.empty())
             m_queue.pop();
-        
-        // moves the frame to the queue, ownership
+
+        // Move new frame into the queue
         m_queue.push(std::move(frame));
     }
+
+    // Wake up any waiting consumer
     m_cv.notify_one();
 }
 
 bool FrameQueue::pop(Frame& out)
 {
-    std::unique_lock<std::mutex>lock(m_mutex);
-    
-    // If the queue is empty, pop() waits on the condition_variable.
-    // During wait(), the mutex is released and this thread sleeps.
+    std::unique_lock<std::mutex> lock(m_mutex);
+
+    // Wait until:
+    // 1) A frame is available, or
+    // 2) Stop has been requested
     //
-    // When push() adds a frame, it notifies the condition_variable.
-    // The waiting thread wakes, re-acquires the mutex, then:
-    //   1) moves the front frame into an output variable,
-    //   2) pops it off the queue,
-    //   3) returns to the caller.
-    //
-    // pop() should return by value or fill an output parameter — not a reference
-    // to an element in the queue, because that element is removed.
+    // wait() releases the mutex while sleeping and reacquires it on wake
     m_cv.wait(lock, [&]{ return !m_queue.empty() || m_stopping; });
-        
-    if(m_stopping && m_queue.empty())
+
+    // If stopping and no work left, exit cleanly
+    if (m_stopping && m_queue.empty())
     {
         return false;
     }
-    
+
+    // Move frame out of queue (no copies)
     out = std::move(m_queue.front());
     m_queue.pop();
-    return true;   
+
+    return true;
 }
 
 void FrameQueue::stop()
 {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+
+        // Signal all threads to stop waiting
         m_stopping = true;
     }
+
+    // Wake up any blocked threads so they can exit
     m_cv.notify_all();
 }
