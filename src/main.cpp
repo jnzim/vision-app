@@ -14,11 +14,11 @@ using namespace std;
 int main()
 {
     FrameQueue      queue;
-    FrameQueue&     q = queue;
-    FrameGrabber    grabber(q, 0);
+    FrameQueue&     q = queue;      // make a ref
+    FrameGrabber    grabber(q, 0);  // pass a ref so everthing is using the same queue
     VisionProcessor processor(queue);
 
-    grabber.start();
+    grabber.start();        
     processor.start();
 
     cv::namedWindow("Camera", cv::WINDOW_AUTOSIZE);

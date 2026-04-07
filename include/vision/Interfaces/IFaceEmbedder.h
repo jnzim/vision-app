@@ -7,7 +7,7 @@ namespace vision {
 class IFaceEmbedder {
 public:
     virtual ~IFaceEmbedder() = default;
-    virtual std::vector<float> embed(const cv::Mat& alignedFaceBgr) = 0;
+    virtual std::vector<float> embed(const cv::Mat& faceBgr) = 0;
 };
 
 } // namespace vision

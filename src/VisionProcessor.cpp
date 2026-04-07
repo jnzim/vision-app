@@ -1,22 +1,23 @@
-// VisionProcessor.cpp
+
 
 #include "VisionProcessor.h"
-
-#include <cstddef>
-#include <iostream>
-#include <chrono>
-#include <sstream>
-#include <iomanip>
-#include <vector>
 #include <algorithm>   // max_element
-#include <vision/Interfaces/FaceBackendFactory.h>
+#include <chrono>
+#include <cmath>
+#include <cstddef>
+#include <iomanip>
+#include <iostream>
 #include <math.h>
+#include <sstream>
+#include <vector>
+
+#include <vision/Interfaces/FaceBackendFactory.h>
 
 VisionProcessor::VisionProcessor(FrameQueue& queue)
     : m_queue(queue), m_running(false)
 {
     m_faceDetector = vision::CreateFaceDetector_OpenCVDNN();
-    // m_faceEmbedder = vision::CreateFaceEmbedder_OpenCVDNN();
+    m_faceEmbedder = vision::CreateFaceEmbedder_OpenCVDNN();
 }
 
 VisionProcessor::~VisionProcessor()
@@ -98,7 +99,6 @@ void VisionProcessor::processFrame(const Frame& f)
 
     const auto tStart = Clock::now();
 
-
     // =========================================================
     // Face detection cache / throttle / ROI state
     // =========================================================
@@ -109,23 +109,23 @@ void VisionProcessor::processFrame(const Frame& f)
     static cv::Point2f lastPredForROI{0.f, 0.f};
     static bool lastPredValidForROI = false;
 
-    const bool runFaceDetect = (++frameCounter % 5) == 0; // every 5th frame
+    // Every 5th frame; tune to 3 if you want snappier response
+    const bool runFaceDetect = (++frameCounter % 5) == 0;
 
     // =========================================================
-    // 1) Detect measurement (blob centroid fallback)
+    // 1) Precompute your “classic blob” pipeline (kept for debug)
     // =========================================================
     cv::Mat gray;
     cv::cvtColor(f.image, gray, cv::COLOR_BGR2GRAY);
 
     cv::Mat blurred;
-    cv::GaussianBlur(gray, blurred, cv::Size(5,5), 0);
+    cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 0);
 
     cv::Mat binary;
     cv::threshold(blurred, binary, 35, 255, cv::THRESH_BINARY);
 
     bool hasMeas = false;
     cv::Point2f meas{};
-
 
     // =========================================================
     // 1b) Face detection (throttled) + ROI crop near last prediction
@@ -137,21 +137,27 @@ void VisionProcessor::processFrame(const Frame& f)
             if (runFaceDetect)
             {
                 // Decide ROI:
-                // - If we have a previous prediction, crop around it.
-                // - Otherwise detect on full frame (bootstrap).
+                // - If we have a previous prediction, crop around it
+                // - Otherwise detect on full frame (bootstrap)
                 cv::Rect roiRect(0, 0, f.image.cols, f.image.rows);
 
                 if (lastPredValidForROI)
                 {
-                    // ROI size: tune this. 640 is a good starting point for 1080p.
+                    // ROI size: tune this. 640 works well for 1080p.
                     const int roiW = 640;
                     const int roiH = 640;
 
-                    int cx = static_cast<int>(std::round(lastPredForROI.x));
-                    int cy = static_cast<int>(std::round(lastPredForROI.y));
+                    const int cx = static_cast<int>(std::lround(lastPredForROI.x));
+                    const int cy = static_cast<int>(std::lround(lastPredForROI.y));
 
                     roiRect = cv::Rect(cx - roiW / 2, cy - roiH / 2, roiW, roiH);
                     roiRect &= cv::Rect(0, 0, f.image.cols, f.image.rows); // clamp
+
+                    // If clamping collapsed the ROI too much, fall back to full frame
+                    if (roiRect.width < 64 || roiRect.height < 64)
+                    {
+                        roiRect = cv::Rect(0, 0, f.image.cols, f.image.rows);
+                    }
                 }
 
                 // Run detection on ROI
@@ -167,11 +173,12 @@ void VisionProcessor::processFrame(const Frame& f)
                 lastFaceDets.clear();
                 lastFaceDets.reserve(detsRoi.size());
 
-                for (auto d : detsRoi)
+                // conver back to full image cord
+                for (auto det : detsRoi)
                 {
-                    d.box.x += roiRect.x;
-                    d.box.y += roiRect.y;
-                    lastFaceDets.push_back(d);
+                    det.box.x += roiRect.x;
+                    det.box.y += roiRect.y;
+                    lastFaceDets.push_back(det);
                 }
             }
 
@@ -218,6 +225,11 @@ void VisionProcessor::processFrame(const Frame& f)
         pred = m_tracker.predictToTime(tObs);
 
     const bool predValid = hasMeas || (pred.x != 0.0f || pred.y != 0.0f);
+
+    // Update ROI predictor source for next face-detect tick
+    lastPredValidForROI = predValid;
+    if (predValid)
+        lastPredForROI = pred;
 
     // =========================================================
     // 3) Spatial jitter (step-based)
@@ -276,11 +288,11 @@ void VisionProcessor::processFrame(const Frame& f)
     fps.store(fpsLocal, std::memory_order_relaxed);
 
     // =========================================================
-    // 5a) Draw overlays
+    // 5) Draw overlays
     // =========================================================
     cv::Mat display = f.image.clone();
 
-    // 5b) Draw face boxes + “proof” overlay
+    // Face boxes + “proof” overlay
     if (m_faceDetector)
     {
         cv::putText(display,
@@ -291,11 +303,11 @@ void VisionProcessor::processFrame(const Frame& f)
                     cv::Scalar(0, 255, 0),
                     2);
 
-        for (const auto& d : lastFaceDets)
-            cv::rectangle(display, d.box, cv::Scalar(0, 255, 0), 2);
+        for (const auto& det : lastFaceDets)
+            cv::rectangle(display, det.box, cv::Scalar(0, 255, 0), 2);
     }
 
-    // Draw meas/pred points
+    // meas/pred points
     if (hasMeas)
     {
         cv::circle(display, meas, 10, cv::Scalar(0, 255, 0), -1);
@@ -329,25 +341,26 @@ void VisionProcessor::processFrame(const Frame& f)
     ss2 << std::fixed << std::setprecision(1);
 
     ss2 << "meas: ";
-    if (hasMeas) {
+    if (hasMeas)
         ss2 << "(" << std::setw(6) << meas.x << ", " << std::setw(6) << meas.y << ")";
-    } else {
+    else
         ss2 << "(  n/a,   n/a)";
-    }
 
     ss2 << "  pred: ";
-    if (predValid) {
+    if (predValid)
         ss2 << "(" << std::setw(6) << pred.x << ", " << std::setw(6) << pred.y << ")";
-    } else {
+    else
         ss2 << "(  n/a,   n/a)";
-    }
 
     ss2 << "  d:";
-    if (hasMeas && predValid) {
-        float dx = meas.x - pred.x;
-        float dy = meas.y - pred.y;
-        ss2 << std::setw(5) << std::sqrt(dx*dx + dy*dy) << "px";
-    } else {
+    if (hasMeas && predValid)
+    {
+        const float dx = meas.x - pred.x;
+        const float dy = meas.y - pred.y;
+        ss2 << std::setw(5) << std::sqrt(dx * dx + dy * dy) << "px";
+    }
+    else
+    {
         ss2 << "  n/a";
     }
 
@@ -367,10 +380,10 @@ void VisionProcessor::processFrame(const Frame& f)
 
     cv::putText(display, cv::format("KF update: %s", hasMeas ? "YES" : "NO"),
                 {15, 200},
-            cv::FONT_HERSHEY_SIMPLEX,
-            0.7,
-                hasMeas ? cv::Scalar(0,255,0) : cv::Scalar(0,0,255),
-            2);
+                cv::FONT_HERSHEY_SIMPLEX,
+                0.7,
+                hasMeas ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255),
+                2);
 
     // =========================================================
     // 6) Publish AFTER overlays
@@ -403,6 +416,7 @@ bool VisionProcessor::getLatestDebugImage(DebugStage stage,
     if (it == m_latestDebugByStage.end() || it->second.img.empty())
         return false;
 
+    // deep copy, from another thread
     it->second.img.copyTo(outImg);
     outAcquired = it->second.t_acquired;
     return true;

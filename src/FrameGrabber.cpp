@@ -15,6 +15,7 @@ FrameGrabber::~FrameGrabber()
 void FrameGrabber::start()
 {
     m_running = true;
+    // pass pointer to run func
     m_thread = std::thread(&FrameGrabber::run, this);
 }
 

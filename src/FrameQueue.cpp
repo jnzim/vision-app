@@ -32,7 +32,8 @@ void FrameQueue::push(Frame&& frame)
         // to prevent latency buildup when processing is slow.
         while (!m_queue.empty())
             m_queue.pop();
-
+        
+        // moves the frame to the queue, ownership
         m_queue.push(std::move(frame));
     }
     m_cv.notify_one();
