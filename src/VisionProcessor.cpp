@@ -317,3 +317,29 @@ void VisionProcessor::processFrame(const Frame& f)
     publishDebugImage(DebugStage::THRESHOLD, binary, f.timeStamp);
     publishDebugImage(DebugStage::OVERLAY, display, f.timeStamp);
 }
+
+void VisionProcessor::publishDebugImage(DebugStage stage,
+                                        const cv::Mat& img,
+                                        Clock::time_point t_acquired)
+{
+    std::lock_guard<std::mutex> lock(m_debugMutex);
+
+    DebugPacket& pkt = m_latestDebugByStage[stage];
+    pkt.t_acquired = t_acquired;
+    img.copyTo(pkt.img);
+}
+
+bool VisionProcessor::getLatestDebugImage(DebugStage stage,
+                                          cv::Mat& outImg,
+                                          Clock::time_point& outAcquired)
+{
+    std::lock_guard<std::mutex> lock(m_debugMutex);
+
+    auto it = m_latestDebugByStage.find(stage);
+    if (it == m_latestDebugByStage.end() || it->second.img.empty())
+        return false;
+
+    it->second.img.copyTo(outImg);
+    outAcquired = it->second.t_acquired;
+    return true;
+}
