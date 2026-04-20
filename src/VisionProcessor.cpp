@@ -143,9 +143,11 @@ void VisionProcessor::processFrame(const Frame& f)
                 const int cx = static_cast<int>(std::lround(lastPredForROI.x));
                 const int cy = static_cast<int>(std::lround(lastPredForROI.y));
 
+                // keep only the pixels that are in both the image and the ROI
+                // ignore ROI hanging off the image
                 roiRect = cv::Rect(cx - roiW / 2, cy - roiH / 2, roiW, roiH);
                 roiRect &= cv::Rect(0, 0, f.image.cols, f.image.rows);
-
+                // dont' bother with tiny ROI
                 if ((roiRect.width < 64) || (roiRect.height < 64))
                 {
                     roiRect = cv::Rect(0, 0, f.image.cols, f.image.rows);
@@ -171,6 +173,7 @@ void VisionProcessor::processFrame(const Frame& f)
 
         if (!dets.empty())
         {
+            // get the best scored detection
             const auto bestIt = std::max_element(
                 dets.begin(),
                 dets.end(),

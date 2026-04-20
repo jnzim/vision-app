@@ -1,54 +1,50 @@
-# Real-Time Camera Tracking Pipeline (C++ / OpenCV)
+# Camera Tracking Pipeline (C++ / OpenCV)
 
-A real-time webcam processing and tracking pipeline written in modern C++.  
-This project demonstrates clean system architecture, thread-safe frame handoff, and practical computer-vision techniques similar to those used in robotics and industrial automation systems.
+This is a live camera tracking pipeline written in modern C++. It serves as a small, practical test bed for vision processing, multithreaded frame handoff.
 
-The emphasis is on **clarity, correctness, and performance-aware design**, not just a minimal demo.
-
----
+The goal is to keep the design clean, correct, and reasonably efficient without overcomplicating the architecture. This is a low-latency vision application running on a general-purpose operating system, not a hard real-time system.
 
 ## Key Features
-- Real-time camera capture using OpenCV
-- Thread-safe frame handoff using mutexes and condition variables
-- Modular processing pipeline:
-  - frame acquisition
-  - vision processing
-  - optional state estimation / smoothing
-- Timestamped frames for basic latency analysis
-- Live visualization with detection overlays
-- Multi-stage debug visualization (raw, thresholded, overlay)
 
----
+- Camera capture using OpenCV
+- Thread-safe frame handoff using a mutex and condition variable
+- Clear, modular pipeline with separate stages for:
+  - frame capture
+  - vision processing
+  - optional smoothing / state estimation
+- Timestamped frames for basic latency measurement
+- Live visualization with overlays
+- Debug views at different stages such as raw, thresholded, and final output
 
 ## Architecture Overview
-The application is structured as a small but realistic vision system rather than a monolithic example.
 
-### Major Components
+Rather than doing everything in a single loop, the pipeline is split into a few focused components. This makes the code easier to understand, easier to modify, and easier to extend.
 
-- **FrameGrabber**  
-  Owns the camera interface and timestamps frames immediately after acquisition.
+## Components
 
-- **FrameQueue**  
-  Thread-safe queue used to decouple capture and processing rates.
+### FrameGrabber
+Handles camera input and timestamps frames when they are captured.
 
-- **VisionProcessor**  
-  Runs in a background thread and performs image processing:
-  - grayscale conversion
-  - thresholding
-  - contour detection
-  - optional state estimation via Kalman filtering
+### FrameQueue
+A thread-safe buffer that allows capture and processing to run somewhat independently.
 
-- **Tracker (optional)**  
-  Applies smoothing / prediction to noisy measurements.
+### VisionProcessor
+Runs on a separate thread and performs the main image processing steps, such as:
 
-- **UI / Visualization**  
-  Displays selected debug stages and reports runtime metrics.
+- grayscale conversion
+- thresholding
+- contour detection
+- optional Kalman filtering
 
----
+### Tracker (optional)
+Smooths noisy detections and can provide simple prediction between measurements.
 
-## Frame & Timestamping
+### Visualization
+Displays intermediate processing stages, final results, and a few basic runtime statistics.
 
-Each captured frame is wrapped in a lightweight structure:
+## Frame and Timestamping
+
+Each frame is wrapped in a small struct:
 
 ```cpp
 struct Frame {

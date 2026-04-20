@@ -41,8 +41,7 @@ int main()
         // display latency from acquisition timestamp to UI update
         if (!img.empty())
         {
-            lastLatencyMs =
-                std::chrono::duration<double, std::milli>(t_disp - t_acq).count();
+            lastLatencyMs = std::chrono::duration<double, std::milli>(t_disp - t_acq).count();
         }
 
         if (key == 27)
