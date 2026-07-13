@@ -136,7 +136,8 @@ void VisionProcessor::processFrame(const Frame& f)
 
                 const int cx = static_cast<int>(std::lround(lastPredForROI.x));
                 const int cy = static_cast<int>(std::lround(lastPredForROI.y));
-
+                
+                // use the last roi center, but clip it if it runs off the image bondary
                 roiRect = cv::Rect(cx - roiW / 2, cy - roiH / 2, roiW, roiH);
                 roiRect &= cv::Rect(0, 0, f.image.cols, f.image.rows);
 
@@ -148,15 +149,18 @@ void VisionProcessor::processFrame(const Frame& f)
 
             const auto t0 = Clock::now();
 
+            // only checkint our ROI for a face, unless this is the first, then whole image
             cv::Mat roiImg = f.image(roiRect);
             auto detsRoi = m_faceDetector.detect(roiImg);
 
             const auto t1 = Clock::now();
+            // face detecion CT
             lastFaceMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
             lastFaceDets.clear();
             lastFaceDets.reserve(detsRoi.size());
 
+            //convert rois back to full image coords
             for (auto det : detsRoi)
             {
                 det.box.x += roiRect.x;
@@ -174,7 +178,7 @@ void VisionProcessor::processFrame(const Frame& f)
                 {
                     return a.score < b.score;
                 });
-
+            // dereference the ittrator to get the box
             const auto& box = bestIt->box;
             meas = cv::Point2f(
                 box.x + 0.5f * box.width,
@@ -377,12 +381,13 @@ void VisionProcessor::processFrame(const Frame& f)
                 cv::Scalar(0, 255, 255), textThickness);
 
     cv::putText(display,
-                cv::format("KF update: %s", hasMeas ? "YES" : "NO"),
-                {15, 200},
-                cv::FONT_HERSHEY_SIMPLEX,
-                0.7,
-                hasMeas ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255),
-                2);
+            cv::format("KF update: %s", hasMeas ? "YES" : "NO"),
+            {15, 200},
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.7,
+            hasMeas ? cv::Scalar(255, 0, 0)   // Blue
+                    : cv::Scalar(0, 0, 255),  // Red
+            2);
 
     publishDebugImage(DebugStage::RAW, f.image, f.timeStamp);
     publishDebugImage(DebugStage::GRAY, gray, f.timeStamp);

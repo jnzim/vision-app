@@ -45,6 +45,7 @@ void FrameQueue::push(Frame&& frame)
 
 bool FrameQueue::pop(Frame& out)
 {
+    // unique lock will release the lock while sleeping 
     std::unique_lock<std::mutex> lock(m_mutex);
 
     // Wait until:

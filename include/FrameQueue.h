@@ -10,7 +10,7 @@ class FrameQueue
 public:
     FrameQueue();
     ~FrameQueue();
-    void push(Frame&& );
+    void push(Frame&& ); // takes rvalue - temp as ref
     bool pop(Frame&);
     void stop();
 

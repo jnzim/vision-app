@@ -43,12 +43,14 @@ cv::Point2f KalmanTracker::update(const cv::Point2f& measured,
 
         return measured;
     }
-
+    // predict the modle forward - velociy base position
     predictTo(t);
 
+    // cv::mat, update the measurement matrix
     measurement.at<float>(0) = measured.x;
     measurement.at<float>(1) = measured.y;
 
+    // correct the model
     cv::Mat estimated = kf.correct(measurement);
 
     return

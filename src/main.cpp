@@ -11,9 +11,10 @@ using namespace std;
 
 int main()
 {
+ 
+    
     FrameQueue queue;
-    FrameQueue& q = queue;                  // shared queue between grabber and processor
-    FrameGrabber grabber(q, 0);             // camera 0
+    FrameGrabber grabber(queue, 0);             // camera 0
     VisionProcessor processor(queue);
 
     grabber.start();
@@ -76,3 +77,6 @@ int main()
 
     return 0;
 }
+
+
+
